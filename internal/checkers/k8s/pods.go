@@ -58,10 +58,10 @@ func (c *PodChecker) Check(ctx context.Context) (check.Result, error) {
 		switch pod.Status.Phase {
 		case "Failed", "Unknown":
 			failed++
-			problems = append(problems, fmt.Sprintf("%s/%s phase=%s", pod.Namespace, pod.Name, pod.Status.Phase))
+			problems = append(problems, formatPodIssue(pod.Namespace, pod.Name, pod.Spec.NodeName, pod.Status.Phase, "", "", 0))
 		case "Pending":
 			pending++
-			problems = append(problems, fmt.Sprintf("%s/%s phase=Pending", pod.Namespace, pod.Name))
+			problems = append(problems, formatPodIssue(pod.Namespace, pod.Name, pod.Spec.NodeName, "Pending", "", "", 0))
 		}
 
 		allReady := true
@@ -74,11 +74,7 @@ func (c *PodChecker) Check(ctx context.Context) (check.Result, error) {
 				} else if cs.State.Terminated != nil && cs.State.Terminated.Reason != "" {
 					reason = cs.State.Terminated.Reason
 				}
-				if reason != "" {
-					problems = append(problems, fmt.Sprintf("%s/%s container=%s reason=%s", pod.Namespace, pod.Name, cs.Name, reason))
-				} else {
-					problems = append(problems, fmt.Sprintf("%s/%s container=%s not-ready", pod.Namespace, pod.Name, cs.Name))
-				}
+				problems = append(problems, formatPodIssue(pod.Namespace, pod.Name, pod.Spec.NodeName, pod.Status.Phase, cs.Name, reason, cs.RestartCount))
 				break
 			}
 		}
@@ -154,4 +150,24 @@ func (c *PodChecker) buildClient() (*kubernetes.Clientset, error) {
 		return nil, err
 	}
 	return kubernetes.NewForConfig(cfg)
+}
+
+func formatPodIssue(namespace, podName, nodeName, phase, container, reason string, restarts int32) string {
+	fields := []string{fmt.Sprintf("%s/%s", namespace, podName)}
+	if phase != "" {
+		fields = append(fields, "phase="+phase)
+	}
+	if container != "" {
+		fields = append(fields, "container="+container)
+	}
+	if reason != "" {
+		fields = append(fields, "reason="+reason)
+	}
+	if restarts > 0 {
+		fields = append(fields, fmt.Sprintf("restarts=%d", restarts))
+	}
+	if nodeName != "" {
+		fields = append(fields, "node="+nodeName)
+	}
+	return strings.Join(fields, " ")
 }

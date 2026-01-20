@@ -81,6 +81,7 @@ func Run(ctx context.Context, configPath string) error {
 	}()
 
 	for res := range results {
+		logResult(log, res)
 		event, err := pol.Evaluate(ctx, res)
 		if err != nil || event == nil {
 			continue
@@ -337,4 +338,17 @@ func matchRoute(match config.RouteMatch, event notify.Event) bool {
 		return false
 	}
 	return true
+}
+
+func logResult(log *logger.Logger, res check.Result) {
+	switch res.Status {
+	case check.StatusCrit:
+		log.Errorf("結果 %s: %s", res.Name, res.Message)
+	case check.StatusWarn:
+		log.Warnf("結果 %s: %s", res.Name, res.Message)
+	case check.StatusOK:
+		log.Infof("結果 %s: %s", res.Name, res.Message)
+	default:
+		log.Infof("結果 %s: %s", res.Name, res.Message)
+	}
 }

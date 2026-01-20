@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"services-health-check/internal/core/notify"
+	"services-health-check/internal/notifiers/format"
 )
 
 type Notifier struct {
@@ -87,14 +88,9 @@ func (n *Notifier) Send(ctx context.Context, event notify.Event) error {
 }
 
 func formatDetails(details string) string {
-	if strings.TrimSpace(details) == "" {
+	list := format.DetailsList(details)
+	if strings.TrimSpace(list) == "" {
 		return "*細節*: n/a"
 	}
-	lines := strings.ReplaceAll(details, "; ", "\n• ")
-	lines = strings.ReplaceAll(lines, ";", "\n• ")
-	lines = strings.TrimSpace(lines)
-	if !strings.HasPrefix(lines, "• ") {
-		lines = "• " + lines
-	}
-	return "*細節*\n" + lines
+	return "*細節*\n" + list
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"services-health-check/internal/core/notify"
+	"services-health-check/internal/notifiers/format"
 )
 
 type Notifier struct {
@@ -95,11 +96,6 @@ func statusColor(status string) int {
 }
 
 func formatDetails(details string) string {
-	if details == "" {
-		return "n/a"
-	}
-	normalized := strings.ReplaceAll(details, "; ", "\n")
-	normalized = strings.ReplaceAll(normalized, ";", "\n")
-	normalized = strings.TrimSpace(normalized)
+	normalized := format.DetailsList(details)
 	return "```\n" + normalized + "\n```"
 }

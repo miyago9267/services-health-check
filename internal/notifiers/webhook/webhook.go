@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"services-health-check/internal/core/notify"
+	"services-health-check/internal/notifiers/format"
 )
 
 type Notifier struct {
@@ -22,6 +23,7 @@ func (n *Notifier) Name() string {
 }
 
 func (n *Notifier) Send(ctx context.Context, event notify.Event) error {
+	event.Details = format.DetailsList(event.Details)
 	payload, err := json.Marshal(event)
 	if err != nil {
 		return err
