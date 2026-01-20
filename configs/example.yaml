@@ -1,0 +1,71 @@
+checks:
+  - type: http
+    name: example-http
+    url: https://example.com
+    interval: 30s
+    timeout: 5s
+  - type: k8s_pods
+    name: gke-pods
+    namespace: default
+    label_selector: app=your-app
+    kubeconfig: ~/.kube/config
+    context: your-context
+    min_ready: 1
+    interval: 30s
+  - type: ssl
+    name: gcp-ssl
+    address: your-domain.example.com:443
+    server_name: your-domain.example.com
+    warn_before: 720h
+    crit_before: 168h
+    interval: 1h
+  - type: cloudflare_token
+    name: cf-token
+    token: your-cloudflare-token
+    schedule: "*/10 * * * *"
+  - type: domain_expiry
+    name: domain-expiry
+    domain: example.com
+    warn_before: 720h
+    crit_before: 168h
+    schedule: "0 0 * * *"
+
+policies:
+  - name: default
+    cooldown: 10m
+    notify_on_recovery: true
+
+channels:
+  - type: discord
+    name: discord-alert
+    url: https://discord.com/api/webhooks/your/webhook
+    username: healthd
+    timeout: 5s
+  - type: slack
+    name: slack-alert
+    url: https://hooks.slack.com/services/your/webhook
+    timeout: 5s
+  - type: gchat
+    name: gchat-alert
+    url: https://chat.googleapis.com/v1/spaces/your/webhook
+    timeout: 5s
+
+routes:
+  - match:
+      status: CRIT
+    to:
+      - discord-alert
+      - slack-alert
+      - gchat-alert
+  - match:
+      status: WARN
+    to:
+      - discord-alert
+  - match:
+      status: OK
+    to:
+      - discord-alert
+
+log:
+  level: info
+  format: text

@@ -1,0 +1,9 @@
+.git
+.github
+.gitignore
+*.md
+.DS_Store
+dist
+**/*.test
+configs/*.local.yaml
+.env

@@ -1,0 +1,120 @@
+stages:
+  - lint
+  - test
+  - build
+  - deploy
+
+variables:
+  IMAGE_PREFIX: "asia-east1-docker.pkg.dev/develop-1386/api/"
+  IMAGE_NAME: "$CI_PROJECT_NAME"
+  IMAGE_TAG: "$CI_PIPELINE_ID"
+  # 部署目標配置
+  DEPLOY_PRODUCT: "services-health-check"
+  DEPLOY_COMPONENT: "services-health-check"
+
+# ==================== Lint 階段 ====================
+
+Lint:
+  stage: lint
+  image: golang:1.25
+  before_script:
+    - go version
+  script:
+    - echo "執行 Go 格式與靜態檢查..."
+    - test -z "$(gofmt -l .)"
+    - go vet ./...
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: on_success
+    - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+      when: on_success
+    - when: never
+  tags:
+    - autoscaler
+  allow_failure: true
+
+# ==================== Test 階段 ====================
+
+Test:
+  stage: test
+  image: golang:1.25
+  before_script:
+    - go version
+  script:
+    - echo "執行 Go 測試..."
+    - go test ./...
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: on_success
+    - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+      when: on_success
+    - when: never
+  tags:
+    - autoscaler
+
+# ==================== Build 階段 ====================
+
+.build_job:
+  image: docker:27.3.1
+  services:
+    - name: docker:dind
+      alias: docker
+  script:
+    - |
+      if [ "$CI_PIPELINE_SOURCE" = "merge_request_event" ] && [ -n "${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME:-}" ]; then
+        git fetch origin "${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME}"
+        git checkout --detach FETCH_HEAD
+        export CI_COMMIT_SHORT_SHA="$(git rev-parse --short HEAD)"
+      fi
+    - git config --global url."https://{{CI_USERNAME}}:${CI_ACCESS_TOKEN}@git.dunqian.tw/".insteadOf "ssh://git@git.dunqian.tw:30001/"
+    - git submodule sync --recursive
+    - git submodule update --init --recursive
+    - printf '%s' "$gcp_artifact_json" | base64 -d | docker login -u _json_key --password-stdin https://asia-east1-docker.pkg.dev
+    - docker buildx create --use
+    # 根據分支決定是否推送
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "main" ]; then
+        echo "main 分支：構建並推送映像到 Artifact Registry"
+        docker buildx build --platform linux/amd64 -t "${IMAGE_PREFIX}${IMAGE_NAME}:${IMAGE_TAG:-${CI_COMMIT_TAG:-${CI_COMMIT_SHORT_SHA:-latest}}}" --push .
+      else
+        echo "非 main 分支或 MR：僅測試構建，不推送映像"
+        docker buildx build --platform linux/amd64 -t "${IMAGE_PREFIX}${IMAGE_NAME}:${IMAGE_TAG:-${CI_COMMIT_TAG:-${CI_COMMIT_SHORT_SHA:-latest}}}" .
+      fi
+
+.build:
+  extends: .build_job
+  stage: build
+  needs: 
+    - Lint
+    - Test
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: on_success
+    - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+      when: on_success
+    - when: never
+  tags:
+    - autoscaler
+
+.deploy:
+  stage: deploy
+  trigger:
+    project: itrd/data-science/k8s-project
+    strategy: depend
+  variables:
+    UPSTREAM_IMAGE: "${IMAGE_PREFIX}${IMAGE_NAME}:${IMAGE_TAG}"
+    UPSTREAM_IMAGE_TAG: "${IMAGE_TAG}"
+    DEPLOY_PRODUCT: "services-health-check"
+    DEPLOY_COMPONENT: "services-health-check"
+    CONTAINER_NAME: "services-health-check"
+
+Build:
+  extends: .build
+
+Deploy:
+  extends: .deploy
+  needs: ["Build"]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+      when: on_success
+    - when: never

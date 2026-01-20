@@ -1,0 +1,13 @@
+# build output
+/dist
+/healthd
+
+# local config
+/configs/*.local.yaml
+.env
+
+# go
+**/*.test
+
+# misc
+.DS_Store
