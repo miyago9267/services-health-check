@@ -142,6 +142,7 @@ func buildChecks(cfg *config.Config) ([]scheduledCheck, error) {
 					Kubeconfig:    c.Kubeconfig,
 					Context:       c.Context,
 					MinReady:      c.MinReady,
+					ProblemLimit:  cfg.Notify.ProblemLimit,
 				},
 				Interval: c.Interval,
 				Schedule: c.Schedule,

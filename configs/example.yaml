@@ -69,3 +69,6 @@ routes:
 log:
   level: info
   format: text
+
+notify:
+  problem_limit: 5

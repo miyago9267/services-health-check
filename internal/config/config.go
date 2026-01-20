@@ -8,6 +8,7 @@ type Config struct {
 	Channels []ChannelConfig `yaml:"channels"`
 	Routes   []RouteConfig   `yaml:"routes"`
 	Log      LogConfig       `yaml:"log"`
+	Notify   NotifyConfig    `yaml:"notify"`
 }
 
 func DefaultConfig() Config {
@@ -57,6 +58,10 @@ type RouteConfig struct {
 type RouteMatch struct {
 	Name   string `yaml:"name" env:"ROUTE_MATCH_NAME"`
 	Status string `yaml:"status" env:"ROUTE_MATCH_STATUS"`
+}
+
+type NotifyConfig struct {
+	ProblemLimit int `yaml:"problem_limit" env:"PROBLEM_LIMIT"`
 }
 
 type LogConfig struct {

@@ -129,6 +129,15 @@ K8s 檢測預設會嘗試 In-Cluster Config，若設定 `kubeconfig` 則會優�
   schedule: "*/5 * * * *"
 ```
 
+### 問題清單筆數
+
+可用 `notify.problem_limit` 或環境變數 `PROBLEM_LIMIT` 統一調整 K8s 問題清單顯示筆數。
+
+```yaml
+notify:
+  problem_limit: 5
+```
+
 ## SSL 憑證到期檢測
 
 範例：

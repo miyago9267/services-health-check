@@ -4,6 +4,7 @@
 
 # local config
 /configs/*.local.yaml
+/configs/local.yaml
 .env
 
 # go

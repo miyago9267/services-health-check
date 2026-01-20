@@ -23,6 +23,7 @@ type PodChecker struct {
 	Kubeconfig    string
 	Context       string
 	MinReady      int
+	ProblemLimit  int
 }
 
 func (c *PodChecker) Name() string {
@@ -101,7 +102,10 @@ func (c *PodChecker) Check(ctx context.Context) (check.Result, error) {
 	}
 
 	if len(problems) > 0 {
-		limit := 5
+		limit := c.ProblemLimit
+		if limit <= 0 {
+			limit = 5
+		}
 		if len(problems) < limit {
 			limit = len(problems)
 		}

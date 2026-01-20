@@ -20,8 +20,9 @@ type Notifier struct {
 }
 
 type payload struct {
-	Text   string  `json:"text,omitempty"`
-	Blocks []block `json:"blocks,omitempty"`
+	Text        string       `json:"text,omitempty"`
+	Blocks      []block      `json:"blocks,omitempty"`
+	Attachments []attachment `json:"attachments,omitempty"`
 }
 
 type block struct {
@@ -35,32 +36,44 @@ type blockText struct {
 	Text string `json:"text"`
 }
 
+type attachment struct {
+	Color  string  `json:"color,omitempty"`
+	Blocks []block `json:"blocks,omitempty"`
+}
+
 func (n *Notifier) Name() string {
 	return n.NameValue
 }
 
 func (n *Notifier) Send(ctx context.Context, event notify.Event) error {
+	blocks := []block{
+		{
+			Type: "header",
+			Text: &blockText{Type: "plain_text", Text: fmt.Sprintf("[%s] %s", event.Status, event.Service)},
+		},
+		{
+			Type: "section",
+			Text: &blockText{Type: "mrkdwn", Text: event.Summary},
+		},
+		{
+			Type: "section",
+			Text: &blockText{Type: "mrkdwn", Text: formatDetails(event.Details)},
+		},
+		{
+			Type: "context",
+			Fields: []blockText{
+				{Type: "mrkdwn", Text: fmt.Sprintf("*狀態*: %s", event.Status)},
+				{Type: "mrkdwn", Text: fmt.Sprintf("*時間*: %s", event.OccurredAt.Format(time.RFC3339))},
+			},
+		},
+	}
+
 	body, err := json.Marshal(payload{
 		Text: fmt.Sprintf("[%s] %s", event.Status, event.Summary),
-		Blocks: []block{
+		Attachments: []attachment{
 			{
-				Type: "header",
-				Text: &blockText{Type: "plain_text", Text: fmt.Sprintf("[%s] %s", event.Status, event.Service)},
-			},
-			{
-				Type: "section",
-				Text: &blockText{Type: "mrkdwn", Text: event.Summary},
-			},
-			{
-				Type: "section",
-				Text: &blockText{Type: "mrkdwn", Text: formatDetails(event.Details)},
-			},
-			{
-				Type: "context",
-				Fields: []blockText{
-					{Type: "mrkdwn", Text: fmt.Sprintf("*狀態*: %s", event.Status)},
-					{Type: "mrkdwn", Text: fmt.Sprintf("*時間*: %s", event.OccurredAt.Format(time.RFC3339))},
-				},
+				Color:  statusColor(event.Status),
+				Blocks: blocks,
 			},
 		},
 	})
@@ -93,4 +106,17 @@ func formatDetails(details string) string {
 		return "*細節*: n/a"
 	}
 	return "*細節*\n" + list
+}
+
+func statusColor(status string) string {
+	switch strings.ToUpper(status) {
+	case "OK":
+		return "#2ECC71"
+	case "WARN":
+		return "#F1C40F"
+	case "CRIT":
+		return "#E74C3C"
+	default:
+		return "#95A5A6"
+	}
 }

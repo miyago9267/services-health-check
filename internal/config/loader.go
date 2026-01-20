@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,6 +28,7 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	applyEnvOverrides(&cfg)
+	applyGlobalOverrides(&cfg)
 	expandDomainEnv(&cfg)
 
 	return &cfg, nil
@@ -280,6 +282,14 @@ func applyLogOverrides(cfg *Config, lc LogConfig) {
 	}
 	if envNonEmpty("LOG_FILE") {
 		cfg.Log.File = lc.File
+	}
+}
+
+func applyGlobalOverrides(cfg *Config) {
+	if envNonEmpty("PROBLEM_LIMIT") {
+		if v, err := strconv.Atoi(strings.TrimSpace(os.Getenv("PROBLEM_LIMIT"))); err == nil {
+			cfg.Notify.ProblemLimit = v
+		}
 	}
 }
 
