@@ -59,7 +59,7 @@ func (c *PodChecker) Check(ctx context.Context) (check.Result, error) {
 		switch pod.Status.Phase {
 		case "Failed", "Unknown":
 			failed++
-			problems = append(problems, formatPodIssue(pod.Namespace, pod.Name, pod.Spec.NodeName, pod.Status.Phase, "", "", 0))
+			problems = append(problems, formatPodIssue(pod.Namespace, pod.Name, pod.Spec.NodeName, string(pod.Status.Phase), "", "", 0))
 		case "Pending":
 			pending++
 			problems = append(problems, formatPodIssue(pod.Namespace, pod.Name, pod.Spec.NodeName, "Pending", "", "", 0))
@@ -75,7 +75,7 @@ func (c *PodChecker) Check(ctx context.Context) (check.Result, error) {
 				} else if cs.State.Terminated != nil && cs.State.Terminated.Reason != "" {
 					reason = cs.State.Terminated.Reason
 				}
-				problems = append(problems, formatPodIssue(pod.Namespace, pod.Name, pod.Spec.NodeName, pod.Status.Phase, cs.Name, reason, cs.RestartCount))
+				problems = append(problems, formatPodIssue(pod.Namespace, pod.Name, pod.Spec.NodeName, string(pod.Status.Phase), cs.Name, reason, cs.RestartCount))
 				break
 			}
 		}

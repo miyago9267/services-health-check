@@ -15,6 +15,7 @@ type TokenChecker struct {
 	NameValue string
 	Token     string
 	Timeout   time.Duration
+	BaseURL   string
 }
 
 type tokenVerifyResponse struct {
@@ -45,7 +46,11 @@ func (c *TokenChecker) Check(ctx context.Context) (check.Result, error) {
 	}
 
 	client := &http.Client{Timeout: timeout}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.cloudflare.com/client/v4/user/tokens/verify", nil)
+	url := "https://api.cloudflare.com/client/v4/user/tokens/verify"
+	if strings.TrimSpace(c.BaseURL) != "" {
+		url = strings.TrimRight(c.BaseURL, "/") + "/user/tokens/verify"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return check.Result{Name: c.NameValue, Status: check.StatusCrit, Message: "建立請求失敗: " + err.Error(), CheckedAt: time.Now()}, err
 	}
