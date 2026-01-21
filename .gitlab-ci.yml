@@ -109,7 +109,7 @@ Test:
     DEPLOY_COMPONENT: "services-health-check"
     DEPLOY_ENVIRONMENT: "production"
     PATCH_FILE_PATH: "k8s-yaml/services-health-check/deployment.yaml"
-    NEW_IMAGE_TAG: "$IMAGE_TAG"
+    NEW_IMAGE_TAG: "$CI_COMMIT_SHA"
 
 Build:
   extends: .build
