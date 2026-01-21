@@ -6,12 +6,19 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/healthd ./cmd/healthd
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags "-s -w" -o /out/healthd ./cmd/healthd
 
 FROM alpine:3.20
 WORKDIR /app
+RUN addgroup -S healthd && adduser -S -G healthd healthd \
+    && mkdir -p /etc/healthd \
+    && chown -R healthd:healthd /app /etc/healthd
 COPY --from=builder /out/healthd /app/healthd
-COPY configs /app/configs
+COPY configs /etc/healthd
+USER healthd
 
 EXPOSE 8080
 ENTRYPOINT ["/app/healthd"]
+CMD ["-config", "/etc/healthd/example.yaml"]

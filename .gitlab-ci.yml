@@ -5,9 +5,10 @@ stages:
   - deploy
 
 variables:
-  IMAGE_PREFIX: "asia-east1-docker.pkg.dev/develop-1386/api/"
+  IMAGE_REGISTRY_PREFIX: "asia-east1-docker.pkg.dev/production-1386/"
+  IMAGE_REPO: "services"
   IMAGE_NAME: "$CI_PROJECT_NAME"
-  IMAGE_TAG: "$CI_PIPELINE_ID"
+  IMAGE_TAG: "$CI_COMMIT_SHA"
   # 部署目標配置
   DEPLOY_PRODUCT: "services-health-check"
   DEPLOY_COMPONENT: "services-health-check"
@@ -74,10 +75,10 @@ Test:
     - |
       if [ "$CI_COMMIT_BRANCH" = "main" ]; then
         echo "main 分支：構建並推送映像到 Artifact Registry"
-        docker buildx build --platform linux/amd64 -t "${IMAGE_PREFIX}${IMAGE_NAME}:${IMAGE_TAG:-${CI_COMMIT_TAG:-${CI_COMMIT_SHORT_SHA:-latest}}}" --push .
+        docker buildx build --platform linux/amd64 -t "${IMAGE_REGISTRY_PREFIX}${IMAGE_REPO}/${IMAGE_NAME}:${IMAGE_TAG:-${CI_COMMIT_TAG:-${CI_COMMIT_SHORT_SHA:-latest}}}" --push .
       else
         echo "非 main 分支或 MR：僅測試構建，不推送映像"
-        docker buildx build --platform linux/amd64 -t "${IMAGE_PREFIX}${IMAGE_NAME}:${IMAGE_TAG:-${CI_COMMIT_TAG:-${CI_COMMIT_SHORT_SHA:-latest}}}" .
+        docker buildx build --platform linux/amd64 -t "${IMAGE_REGISTRY_PREFIX}${IMAGE_REPO}/${IMAGE_NAME}:${IMAGE_TAG:-${CI_COMMIT_TAG:-${CI_COMMIT_SHORT_SHA:-latest}}}" .
       fi
 
 .build:
@@ -101,11 +102,16 @@ Test:
     project: itrd/data-science/k8s-project
     strategy: depend
   variables:
-    UPSTREAM_IMAGE: "${IMAGE_PREFIX}${IMAGE_NAME}:${IMAGE_TAG}"
+    UPSTREAM_IMAGE: "${IMAGE_REGISTRY_PREFIX}${IMAGE_REPO}/${IMAGE_NAME}:${IMAGE_TAG}"
     UPSTREAM_IMAGE_TAG: "${IMAGE_TAG}"
+    UPSTREAM_SHA: "$CI_COMMIT_SHA"
+    UPSTREAM_GCP_IMAGE_PREFIX: "${IMAGE_REGISTRY_PREFIX}"
+    UPSTREAM_IMAGE_NAME: "${IMAGE_REPO}/${IMAGE_NAME}"
     DEPLOY_PRODUCT: "services-health-check"
     DEPLOY_COMPONENT: "services-health-check"
     CONTAINER_NAME: "services-health-check"
+    PATCH_FILE_PATH: "k8s-yaml/services-health-check/deployment.yaml"
+    NEW_IMAGE_TAG: "$IMAGE_TAG"
 
 Build:
   extends: .build
