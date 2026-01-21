@@ -28,6 +28,7 @@ type CheckConfig struct {
 	Token         string        `yaml:"token" env:"CHECK_TOKEN"`
 	WarnBefore    time.Duration `yaml:"warn_before" env:"CHECK_WARN_BEFORE"`
 	CritBefore    time.Duration `yaml:"crit_before" env:"CHECK_CRIT_BEFORE"`
+	RDAPBaseURL   string        `yaml:"rdap_base_url" env:"CHECK_RDAP_BASE_URL"`
 	SkipVerify    bool          `yaml:"skip_verify" env:"CHECK_SKIP_VERIFY"`
 	Namespace     string        `yaml:"namespace" env:"CHECK_NAMESPACE"`
 	LabelSelector string        `yaml:"label_selector" env:"CHECK_LABEL_SELECTOR"`
@@ -61,7 +62,11 @@ type RouteMatch struct {
 }
 
 type NotifyConfig struct {
-	ProblemLimit int `yaml:"problem_limit" env:"PROBLEM_LIMIT"`
+	ProblemLimit    int           `yaml:"problem_limit" env:"PROBLEM_LIMIT"`
+	AggregateByType bool          `yaml:"aggregate_by_type" env:"NOTIFY_AGGREGATE_BY_TYPE"`
+	AggregateWindow time.Duration `yaml:"aggregate_window" env:"NOTIFY_AGGREGATE_WINDOW"`
+	StopOnFail      bool          `yaml:"stop_on_fail" env:"NOTIFY_STOP_ON_FAIL"`
+	RunOnce         bool          `yaml:"run_once" env:"NOTIFY_RUN_ONCE"`
 }
 
 type LogConfig struct {

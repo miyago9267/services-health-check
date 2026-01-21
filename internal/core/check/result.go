@@ -13,6 +13,7 @@ const (
 
 type Result struct {
 	Name      string
+	Type      string
 	Status    Status
 	Message   string
 	Metrics   map[string]any

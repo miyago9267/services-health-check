@@ -77,6 +77,12 @@ go run ./cmd/healthd -config configs/example.yaml
 2. `.env`（可選）
 3. 環境變數（可選）
 
+## 推播規則
+
+- 每次掃描都會推播結果（OK/WARN/CRIT/UNKNOWN）
+- `UNKNOWN` 代表「掃描失敗」或無法取得結果
+- 通知通道若失敗，會在 log 顯示錯誤訊息
+
 ## Discord webhook 格式
 
 推播內容為純文字，格式：
@@ -138,6 +144,18 @@ notify:
   problem_limit: 5
 ```
 
+### 彙總推播（依 type）
+
+可將同一類型的檢查結果彙總後再推播，避免訊息過多。
+
+```yaml
+notify:
+  aggregate_by_type: true
+  aggregate_window: 30s
+  stop_on_fail: false
+  run_once: false
+```
+
 ## SSL 憑證到期檢測
 
 範例：
@@ -172,6 +190,8 @@ notify:
 
 透過 WHOIS 讀取網域到期日。
 
+為避免 RDAP/WHOIS 被頻繁打到，內建 0~10 秒隨機延遲（jitter）。
+
 範例：
 
 ```yaml
@@ -191,7 +211,9 @@ notify:
 CHECK_DOMAINS="itrd.tw,dunqian.tw,mastripms.com"
 CHECK_DOMAIN_WARN_BEFORE=720h
 CHECK_DOMAIN_CRIT_BEFORE=168h
-CHECK_DOMAIN_SCHEDULE="0 0 * * *"
+CHECK_DOMAIN_SCHEDULE="0 3 * * *"
+CHECK_DOMAIN_TIMEOUT=20s
+CHECK_DOMAIN_RDAP_BASE_URL=https://rdap.org
 ```
 
 ## 環境變數替換

@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,9 +28,12 @@ import (
 )
 
 type scheduledCheck struct {
-	Checker  check.Checker
-	Interval time.Duration
-	Schedule string
+	Checker    check.Checker
+	Interval   time.Duration
+	Schedule   string
+	Type       string
+	StopOnFail bool
+	RunOnce    bool
 }
 
 func Run(ctx context.Context, configPath string) error {
@@ -80,10 +85,22 @@ func Run(ctx context.Context, configPath string) error {
 		close(results)
 	}()
 
+	var agg chan notify.Event
+	if cfg.Notify.AggregateByType {
+		agg = make(chan notify.Event, 100)
+		expected := countChecksByType(cfg)
+		go runAggregator(ctx, cfg, agg, notifiers, log, expected)
+	}
+
 	for res := range results {
 		logResult(log, res)
 		event, err := pol.Evaluate(ctx, res)
 		if err != nil || event == nil {
+			continue
+		}
+		event.Type = res.Type
+		if agg != nil {
+			agg <- *event
 			continue
 		}
 		dispatch(ctx, cfg, *event, notifiers, log)
@@ -130,8 +147,11 @@ func buildChecks(cfg *config.Config) ([]scheduledCheck, error) {
 					URL:       c.URL,
 					Timeout:   timeout,
 				},
-				Interval: c.Interval,
-				Schedule: c.Schedule,
+				Interval:   c.Interval,
+				Schedule:   c.Schedule,
+				Type:       c.Type,
+				StopOnFail: cfg.Notify.StopOnFail,
+				RunOnce:    cfg.Notify.RunOnce,
 			})
 		case "k8s_pods":
 			checks = append(checks, scheduledCheck{
@@ -144,8 +164,11 @@ func buildChecks(cfg *config.Config) ([]scheduledCheck, error) {
 					MinReady:      c.MinReady,
 					ProblemLimit:  cfg.Notify.ProblemLimit,
 				},
-				Interval: c.Interval,
-				Schedule: c.Schedule,
+				Interval:   c.Interval,
+				Schedule:   c.Schedule,
+				Type:       c.Type,
+				StopOnFail: cfg.Notify.StopOnFail,
+				RunOnce:    cfg.Notify.RunOnce,
 			})
 		case "ssl":
 			timeout := c.Timeout
@@ -162,8 +185,11 @@ func buildChecks(cfg *config.Config) ([]scheduledCheck, error) {
 					CritBefore: c.CritBefore,
 					SkipVerify: c.SkipVerify,
 				},
-				Interval: c.Interval,
-				Schedule: c.Schedule,
+				Interval:   c.Interval,
+				Schedule:   c.Schedule,
+				Type:       c.Type,
+				StopOnFail: cfg.Notify.StopOnFail,
+				RunOnce:    cfg.Notify.RunOnce,
 			})
 		case "cloudflare_token":
 			timeout := c.Timeout
@@ -176,8 +202,11 @@ func buildChecks(cfg *config.Config) ([]scheduledCheck, error) {
 					Token:     c.Token,
 					Timeout:   timeout,
 				},
-				Interval: c.Interval,
-				Schedule: c.Schedule,
+				Interval:   c.Interval,
+				Schedule:   c.Schedule,
+				Type:       c.Type,
+				StopOnFail: cfg.Notify.StopOnFail,
+				RunOnce:    cfg.Notify.RunOnce,
 			})
 		case "domain_expiry":
 			timeout := c.Timeout
@@ -186,14 +215,18 @@ func buildChecks(cfg *config.Config) ([]scheduledCheck, error) {
 			}
 			checks = append(checks, scheduledCheck{
 				Checker: &domain.ExpiryChecker{
-					NameValue:  c.Name,
-					Domain:     c.Domain,
-					Timeout:    timeout,
-					WarnBefore: c.WarnBefore,
-					CritBefore: c.CritBefore,
+					NameValue:   c.Name,
+					Domain:      c.Domain,
+					Timeout:     timeout,
+					WarnBefore:  c.WarnBefore,
+					CritBefore:  c.CritBefore,
+					RDAPBaseURL: c.RDAPBaseURL,
 				},
-				Interval: c.Interval,
-				Schedule: c.Schedule,
+				Interval:   c.Interval,
+				Schedule:   c.Schedule,
+				Type:       c.Type,
+				StopOnFail: cfg.Notify.StopOnFail,
+				RunOnce:    cfg.Notify.RunOnce,
 			})
 		default:
 			return nil, fmt.Errorf("unknown check type at index %d (name=%q): %q", i, c.Name, c.Type)
@@ -263,7 +296,13 @@ func buildPolicy(cfg *config.Config) *policy.SimplePolicy {
 }
 
 func runCheckLoop(ctx context.Context, sc scheduledCheck, results chan<- check.Result, log *logger.Logger) {
-	runOnce(ctx, sc.Checker, results)
+	status := runOnce(ctx, sc.Checker, results, sc.Type)
+	if sc.RunOnce {
+		return
+	}
+	if sc.StopOnFail && status != check.StatusOK {
+		return
+	}
 
 	if sc.Schedule != "" {
 		runCronLoop(ctx, sc, results, log)
@@ -272,7 +311,7 @@ func runCheckLoop(ctx context.Context, sc scheduledCheck, results chan<- check.R
 
 	interval := sc.Interval
 	if interval == 0 {
-		interval = 30 * time.Second
+		return
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -282,7 +321,10 @@ func runCheckLoop(ctx context.Context, sc scheduledCheck, results chan<- check.R
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			runOnce(ctx, sc.Checker, results)
+			status = runOnce(ctx, sc.Checker, results, sc.Type)
+			if sc.StopOnFail && status != check.StatusOK {
+				return
+			}
 		}
 	}
 }
@@ -291,7 +333,10 @@ func runCronLoop(ctx context.Context, sc scheduledCheck, results chan<- check.Re
 	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 	c := cron.New(cron.WithParser(parser))
 	_, err := c.AddFunc(sc.Schedule, func() {
-		runOnce(ctx, sc.Checker, results)
+		status := runOnce(ctx, sc.Checker, results, sc.Type)
+		if sc.StopOnFail && status != check.StatusOK {
+			return
+		}
 	})
 	if err != nil {
 		log.Errorf("invalid schedule for %q: %v", sc.Checker.Name(), err)
@@ -303,13 +348,145 @@ func runCronLoop(ctx context.Context, sc scheduledCheck, results chan<- check.Re
 	<-ctx.Done()
 }
 
-func runOnce(ctx context.Context, checker check.Checker, results chan<- check.Result) {
-	res, err := checker.Check(ctx)
-	if err != nil {
-		results <- res
-		return
+func runOnce(ctx context.Context, checker check.Checker, results chan<- check.Result, checkType string) check.Status {
+	if ctx.Err() != nil {
+		return check.StatusUnknown
 	}
-	results <- res
+	res, err := checker.Check(ctx)
+	res.Type = checkType
+	if err != nil {
+		if ctx.Err() == nil {
+			results <- res
+		}
+		return res.Status
+	}
+	if ctx.Err() == nil {
+		results <- res
+	}
+	return res.Status
+}
+
+func runAggregator(ctx context.Context, cfg *config.Config, in <-chan notify.Event, notifiers map[string]notify.Notifier, log *logger.Logger, expected map[string]int) {
+	window := cfg.Notify.AggregateWindow
+	if window == 0 {
+		window = 30 * time.Second
+	}
+	ticker := time.NewTicker(window)
+	defer ticker.Stop()
+
+	buffer := make(map[string][]notify.Event)
+	flushAll := func() {
+		for key, items := range buffer {
+			if len(items) == 0 {
+				continue
+			}
+			aggregateAndDispatch(ctx, cfg, key, items, notifiers, log)
+		}
+		buffer = make(map[string][]notify.Event)
+	}
+	flushType := func(key string) {
+		items := buffer[key]
+		if len(items) == 0 {
+			return
+		}
+		aggregateAndDispatch(ctx, cfg, key, items, notifiers, log)
+		delete(buffer, key)
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			flushAll()
+			return
+		case ev := <-in:
+			key := ev.Type
+			if key == "" {
+				key = "unknown"
+			}
+			buffer[key] = append(buffer[key], ev)
+			if expected[key] > 0 && len(buffer[key]) >= expected[key] {
+				flushType(key)
+			}
+		case <-ticker.C:
+			flushAll()
+		}
+	}
+}
+
+func aggregateAndDispatch(ctx context.Context, cfg *config.Config, key string, items []notify.Event, notifiers map[string]notify.Notifier, log *logger.Logger) {
+	status := highestStatus(items)
+	summary := fmt.Sprintf("%s 檢查彙總（%d）", typeLabel(key), len(items))
+	details := buildAggregateDetails(items)
+	agg := notify.Event{
+		Service:    key,
+		Type:       key,
+		Status:     status,
+		Summary:    summary,
+		Details:    details,
+		OccurredAt: time.Now(),
+	}
+	dispatch(ctx, cfg, agg, notifiers, log)
+}
+
+func highestStatus(events []notify.Event) string {
+	priority := map[string]int{"CRIT": 3, "WARN": 2, "OK": 1, "UNKNOWN": 0}
+	best := "UNKNOWN"
+	bestScore := -1
+	for _, ev := range events {
+		score := priority[ev.Status]
+		if score > bestScore {
+			bestScore = score
+			best = ev.Status
+		}
+	}
+	return best
+}
+
+func buildAggregateDetails(events []notify.Event) string {
+	var lines []string
+	for _, ev := range events {
+		if ev.Status == "OK" {
+			continue
+		}
+		detail := ev.Details
+		if ev.Type != "domain_expiry" {
+			detail = fmt.Sprintf("%s: %s", ev.Service, ev.Details)
+		}
+		line := fmt.Sprintf("[%s] %s", ev.Status, detail)
+		lines = append(lines, line)
+	}
+	if len(lines) == 0 {
+		return "無 WARN/CRIT"
+	}
+	return strings.Join(lines, "; ")
+}
+
+func typeLabel(key string) string {
+	switch key {
+	case "k8s_pods":
+		return "K8s Pod"
+	case "ssl":
+		return "SSL"
+	case "domain_expiry":
+		return "Domain"
+	case "cloudflare_token":
+		return "Cloudflare Token"
+	case "http":
+		return "HTTP"
+	default:
+		return key
+	}
+}
+
+func countChecksByType(cfg *config.Config) map[string]int {
+	out := make(map[string]int)
+	for _, c := range cfg.Checks {
+		if c.Type == "" {
+			continue
+		}
+		out[c.Type]++
+	}
+	return out
 }
 
 func dispatch(ctx context.Context, cfg *config.Config, event notify.Event, notifiers map[string]notify.Notifier, log *logger.Logger) {
@@ -322,7 +499,13 @@ func dispatch(ctx context.Context, cfg *config.Config, event notify.Event, notif
 			if !ok {
 				continue
 			}
+			if ctx.Err() != nil {
+				return
+			}
 			if err := n.Send(ctx, event); err != nil {
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					return
+				}
 				log.Errorf("notify %s: %v", name, err)
 				continue
 			}

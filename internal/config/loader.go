@@ -106,6 +106,9 @@ func applyCheckOverrides(cfg *Config, ec CheckConfig) {
 	if envNonEmpty("CHECK_TOKEN") {
 		c.Token = ec.Token
 	}
+	if envNonEmpty("CHECK_RDAP_BASE_URL") {
+		c.RDAPBaseURL = ec.RDAPBaseURL
+	}
 	if envNonEmpty("CHECK_WARN_BEFORE") {
 		c.WarnBefore = ec.WarnBefore
 	}
@@ -226,7 +229,7 @@ func checkEnvKeys() []string {
 	return []string{
 		"CHECK_TYPE", "CHECK_NAME", "CHECK_URL", "CHECK_INTERVAL", "CHECK_TIMEOUT",
 		"CHECK_ADDRESS", "CHECK_SERVER_NAME", "CHECK_WARN_BEFORE", "CHECK_CRIT_BEFORE",
-		"CHECK_DOMAIN", "CHECK_TOKEN", "CHECK_NAMESPACE", "CHECK_LABEL_SELECTOR",
+		"CHECK_DOMAIN", "CHECK_TOKEN", "CHECK_RDAP_BASE_URL", "CHECK_NAMESPACE", "CHECK_LABEL_SELECTOR",
 		"CHECK_KUBECONFIG", "CHECK_CONTEXT", "CHECK_MIN_READY", "CHECK_SCHEDULE",
 		"CHECK_SKIP_VERIFY",
 	}
@@ -291,6 +294,29 @@ func applyGlobalOverrides(cfg *Config) {
 			cfg.Notify.ProblemLimit = v
 		}
 	}
+	if envNonEmpty("NOTIFY_AGGREGATE_BY_TYPE") {
+		val := strings.TrimSpace(os.Getenv("NOTIFY_AGGREGATE_BY_TYPE"))
+		if val == "1" || strings.EqualFold(val, "true") || strings.EqualFold(val, "yes") {
+			cfg.Notify.AggregateByType = true
+		}
+	}
+	if envNonEmpty("NOTIFY_AGGREGATE_WINDOW") {
+		if d, err := time.ParseDuration(os.Getenv("NOTIFY_AGGREGATE_WINDOW")); err == nil {
+			cfg.Notify.AggregateWindow = d
+		}
+	}
+	if envNonEmpty("NOTIFY_STOP_ON_FAIL") {
+		val := strings.TrimSpace(os.Getenv("NOTIFY_STOP_ON_FAIL"))
+		if val == "1" || strings.EqualFold(val, "true") || strings.EqualFold(val, "yes") {
+			cfg.Notify.StopOnFail = true
+		}
+	}
+	if envNonEmpty("NOTIFY_RUN_ONCE") {
+		val := strings.TrimSpace(os.Getenv("NOTIFY_RUN_ONCE"))
+		if val == "1" || strings.EqualFold(val, "true") || strings.EqualFold(val, "yes") {
+			cfg.Notify.RunOnce = true
+		}
+	}
 }
 
 func expandDomainEnv(cfg *Config) {
@@ -306,6 +332,8 @@ func expandDomainEnv(cfg *Config) {
 	var warnBefore time.Duration
 	var critBefore time.Duration
 	var schedule string
+	var timeout time.Duration
+	var rdapBaseURL string
 
 	if envNonEmpty("CHECK_DOMAIN_WARN_BEFORE") {
 		if d, err := time.ParseDuration(os.Getenv("CHECK_DOMAIN_WARN_BEFORE")); err == nil {
@@ -320,6 +348,18 @@ func expandDomainEnv(cfg *Config) {
 	if envNonEmpty("CHECK_DOMAIN_SCHEDULE") {
 		schedule = os.Getenv("CHECK_DOMAIN_SCHEDULE")
 	}
+	if envNonEmpty("CHECK_DOMAIN_TIMEOUT") {
+		if d, err := time.ParseDuration(os.Getenv("CHECK_DOMAIN_TIMEOUT")); err == nil {
+			timeout = d
+		}
+	}
+	if envNonEmpty("CHECK_DOMAIN_RDAP_BASE_URL") {
+		rdapBaseURL = os.Getenv("CHECK_DOMAIN_RDAP_BASE_URL")
+	}
+
+	if schedule == "" {
+		schedule = "0 3 * * *"
+	}
 
 	parts := strings.Split(raw, ",")
 	for _, p := range parts {
@@ -329,12 +369,14 @@ func expandDomainEnv(cfg *Config) {
 		}
 		name := strings.ReplaceAll(p, ".", "-")
 		cfg.Checks = append(cfg.Checks, CheckConfig{
-			Type:       "domain_expiry",
-			Name:       "domain-expiry-" + name,
-			Domain:     p,
-			WarnBefore: warnBefore,
-			CritBefore: critBefore,
-			Schedule:   schedule,
+			Type:        "domain_expiry",
+			Name:        "domain-expiry-" + name,
+			Domain:      p,
+			WarnBefore:  warnBefore,
+			CritBefore:  critBefore,
+			Schedule:    schedule,
+			Timeout:     timeout,
+			RDAPBaseURL: rdapBaseURL,
 		})
 	}
 }

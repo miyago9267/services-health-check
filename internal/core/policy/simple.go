@@ -33,7 +33,6 @@ func (p *SimplePolicy) Evaluate(ctx context.Context, res check.Result) (*notify.
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	last := p.lastStatus[res.Name]
 	p.lastStatus[res.Name] = res.Status
 
 	now := time.Now()
@@ -45,26 +44,15 @@ func (p *SimplePolicy) Evaluate(ctx context.Context, res check.Result) (*notify.
 		}
 	}
 
-	if res.Status == check.StatusOK {
-		if last != check.StatusOK && p.NotifyOnRecovery {
-			p.lastNotified[res.Name] = now
-			return &notify.Event{
-				Service:    res.Name,
-				Status:     string(res.Status),
-				Summary:    fmt.Sprintf("%s 已恢復", res.Name),
-				Details:    res.Message,
-				Labels:     map[string]string{"status": string(res.Status)},
-				OccurredAt: now,
-			}, nil
-		}
-		return nil, nil
-	}
-
 	p.lastNotified[res.Name] = now
+	summary := fmt.Sprintf("%s 狀態：%s", res.Name, res.Status)
+	if res.Status == check.StatusUnknown {
+		summary = fmt.Sprintf("%s 掃描失敗", res.Name)
+	}
 	return &notify.Event{
 		Service:    res.Name,
 		Status:     string(res.Status),
-		Summary:    fmt.Sprintf("%s 狀態：%s", res.Name, res.Status),
+		Summary:    summary,
 		Details:    res.Message,
 		Labels:     map[string]string{"status": string(res.Status)},
 		OccurredAt: now,

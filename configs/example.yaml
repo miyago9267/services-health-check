@@ -32,8 +32,8 @@ checks:
 
 policies:
   - name: default
-    cooldown: 10m
-    notify_on_recovery: true
+    cooldown: 0s
+    notify_on_recovery: false
 
 channels:
   - type: discord
@@ -72,3 +72,7 @@ log:
 
 notify:
   problem_limit: 5
+  aggregate_by_type: true
+  aggregate_window: 30s
+  stop_on_fail: false
+  run_once: false
