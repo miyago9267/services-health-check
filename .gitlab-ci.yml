@@ -102,14 +102,12 @@ Test:
     project: itrd/devops/argocd
     strategy: depend
   variables:
-    UPSTREAM_IMAGE: "${IMAGE_REGISTRY_PREFIX}${IMAGE_REPO}/${IMAGE_NAME}:${IMAGE_TAG}"
-    UPSTREAM_IMAGE_TAG: "${IMAGE_TAG}"
     UPSTREAM_SHA: "$CI_COMMIT_SHA"
     UPSTREAM_GCP_IMAGE_PREFIX: "${IMAGE_REGISTRY_PREFIX}"
-    UPSTREAM_IMAGE_NAME: "${IMAGE_REPO}/${IMAGE_NAME}"
+    UPSTREAM_FULL_IMAGE_NAME: "${IMAGE_REPO}/${IMAGE_NAME}"
     DEPLOY_PRODUCT: "services-health-check"
     DEPLOY_COMPONENT: "services-health-check"
-    CONTAINER_NAME: "services-health-check"
+    DEPLOY_ENVIRONMENT: "production"
     PATCH_FILE_PATH: "k8s-yaml/services-health-check/deployment.yaml"
     NEW_IMAGE_TAG: "$IMAGE_TAG"
 
