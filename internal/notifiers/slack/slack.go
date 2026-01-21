@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -21,24 +22,25 @@ type Notifier struct {
 
 type payload struct {
 	Text        string       `json:"text,omitempty"`
-	Blocks      []block      `json:"blocks,omitempty"`
 	Attachments []attachment `json:"attachments,omitempty"`
 }
 
+type attachment struct {
+	Fallback string  `json:"fallback,omitempty"`
+	Color    string  `json:"color,omitempty"`
+	Blocks   []block `json:"blocks,omitempty"`
+}
+
 type block struct {
-	Type   string      `json:"type"`
-	Text   *blockText  `json:"text,omitempty"`
-	Fields []blockText `json:"fields,omitempty"`
+	Type     string      `json:"type"`
+	Text     *blockText  `json:"text,omitempty"`
+	Fields   []blockText `json:"fields,omitempty"`
+	Elements []blockText `json:"elements,omitempty"`
 }
 
 type blockText struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
-}
-
-type attachment struct {
-	Color  string  `json:"color,omitempty"`
-	Blocks []block `json:"blocks,omitempty"`
 }
 
 func (n *Notifier) Name() string {
@@ -48,8 +50,8 @@ func (n *Notifier) Name() string {
 func (n *Notifier) Send(ctx context.Context, event notify.Event) error {
 	blocks := []block{
 		{
-			Type: "header",
-			Text: &blockText{Type: "plain_text", Text: fmt.Sprintf("[%s] %s", event.Status, event.Service)},
+			Type: "section",
+			Text: &blockText{Type: "mrkdwn", Text: fmt.Sprintf("*[%s]* %s", event.Status, event.Service)},
 		},
 		{
 			Type: "section",
@@ -61,19 +63,19 @@ func (n *Notifier) Send(ctx context.Context, event notify.Event) error {
 		},
 		{
 			Type: "context",
-			Fields: []blockText{
+			Elements: []blockText{
 				{Type: "mrkdwn", Text: fmt.Sprintf("*狀態*: %s", event.Status)},
 				{Type: "mrkdwn", Text: fmt.Sprintf("*時間*: %s", event.OccurredAt.Format(time.RFC3339))},
 			},
 		},
 	}
-
 	body, err := json.Marshal(payload{
 		Text: fmt.Sprintf("[%s] %s", event.Status, event.Summary),
 		Attachments: []attachment{
 			{
-				Color:  statusColor(event.Status),
-				Blocks: blocks,
+				Fallback: fmt.Sprintf("[%s] %s", event.Status, event.Summary),
+				Color:    statusColor(event.Status),
+				Blocks:   blocks,
 			},
 		},
 	})
@@ -95,14 +97,15 @@ func (n *Notifier) Send(ctx context.Context, event notify.Event) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("slack status %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("slack status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	return nil
 }
 
 func formatDetails(details string) string {
-	list := format.DetailsList(details)
-	if strings.TrimSpace(list) == "" {
+	list := format.DetailsListForSlack(details)
+	if strings.TrimSpace(list) == "" || list == "n/a" {
 		return "*細節*: n/a"
 	}
 	return "*細節*\n" + list
@@ -110,13 +113,13 @@ func formatDetails(details string) string {
 
 func statusColor(status string) string {
 	switch strings.ToUpper(status) {
-	case "OK":
-		return "#2ECC71"
-	case "WARN":
-		return "#F1C40F"
 	case "CRIT":
-		return "#E74C3C"
+		return "#d32f2f"
+	case "WARN":
+		return "#fbc02d"
+	case "OK":
+		return "#388e3c"
 	default:
-		return "#95A5A6"
+		return "#90a4ae"
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -77,7 +78,8 @@ func (n *Notifier) Send(ctx context.Context, event notify.Event) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("discord status %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("discord status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	return nil
 }
@@ -97,5 +99,8 @@ func statusColor(status string) int {
 
 func formatDetails(details string) string {
 	normalized := format.DetailsList(details)
+	if len(normalized) > 900 {
+		normalized = normalized[:900] + "\n- ...（已截斷）"
+	}
 	return "```\n" + normalized + "\n```"
 }
