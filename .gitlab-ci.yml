@@ -99,7 +99,7 @@ Test:
 .deploy:
   stage: deploy
   trigger:
-    project: itrd/data-science/k8s-project
+    project: itrd/devops/argocd
     strategy: depend
   variables:
     UPSTREAM_IMAGE: "${IMAGE_REGISTRY_PREFIX}${IMAGE_REPO}/${IMAGE_NAME}:${IMAGE_TAG}"
