@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"strings"
 	"time"
@@ -15,11 +16,12 @@ import (
 )
 
 type ExpiryChecker struct {
-	NameValue  string
-	Domain     string
-	Timeout    time.Duration
-	WarnBefore time.Duration
-	CritBefore time.Duration
+	NameValue   string
+	Domain      string
+	Timeout     time.Duration
+	WarnBefore  time.Duration
+	CritBefore  time.Duration
+	RDAPBaseURL string
 }
 
 func (c *ExpiryChecker) Name() string {
@@ -31,11 +33,15 @@ func (c *ExpiryChecker) Check(ctx context.Context) (check.Result, error) {
 		return check.Result{Name: c.NameValue, Status: check.StatusUnknown, Message: "缺少 domain", CheckedAt: time.Now()}, fmt.Errorf("domain required")
 	}
 
-	exp, err := c.lookupExpiration(ctx)
+	cctx, cancel := c.withJitter(ctx)
+	defer cancel()
+
+	exp, err := c.lookupExpiration(cctx)
 	if err != nil {
-		return check.Result{Name: c.NameValue, Status: check.StatusCrit, Message: "查詢失敗: " + err.Error(), CheckedAt: time.Now()}, err
+		return check.Result{Name: c.NameValue, Status: check.StatusCrit, Message: fmt.Sprintf("查詢失敗（%s）: %s", c.Domain, err.Error()), CheckedAt: time.Now()}, err
 	}
 	until := time.Until(exp)
+	remaining := formatDurationDHMS(until)
 
 	warn := c.WarnBefore
 	crit := c.CritBefore
@@ -47,16 +53,16 @@ func (c *ExpiryChecker) Check(ctx context.Context) (check.Result, error) {
 	}
 
 	status := check.StatusOK
-	message := fmt.Sprintf("網域尚有 %s", until.Truncate(time.Hour))
+	message := fmt.Sprintf("網域尚有 %s（%s）", remaining, c.Domain)
 	if until <= 0 {
 		status = check.StatusCrit
-		message = "網域已過期"
+		message = fmt.Sprintf("網域已過期（%s）", c.Domain)
 	} else if until <= crit {
 		status = check.StatusCrit
-		message = fmt.Sprintf("網域即將過期：%s", until.Truncate(time.Hour))
+		message = fmt.Sprintf("網域即將過期（%s）：%s", c.Domain, remaining)
 	} else if until <= warn {
 		status = check.StatusWarn
-		message = fmt.Sprintf("網域即將過期：%s", until.Truncate(time.Hour))
+		message = fmt.Sprintf("網域即將過期（%s）：%s", c.Domain, remaining)
 	}
 
 	return check.Result{
@@ -66,6 +72,21 @@ func (c *ExpiryChecker) Check(ctx context.Context) (check.Result, error) {
 		Metrics:   map[string]any{"expiration": exp.Format(time.RFC3339)},
 		CheckedAt: time.Now(),
 	}, nil
+}
+
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
+
+func (c *ExpiryChecker) withJitter(ctx context.Context) (context.Context, context.CancelFunc) {
+	jitter := time.Duration(rand.Intn(10)) * time.Second
+	timer := time.NewTimer(jitter)
+	select {
+	case <-timer.C:
+	case <-ctx.Done():
+		timer.Stop()
+	}
+	return context.WithCancel(ctx)
 }
 
 func (c *ExpiryChecker) lookupExpiration(ctx context.Context) (time.Time, error) {
@@ -101,7 +122,11 @@ func (c *ExpiryChecker) lookupRDAP(ctx context.Context) (time.Time, error) {
 	if client.Timeout == 0 {
 		client.Timeout = 10 * time.Second
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://rdap.org/domain/"+c.Domain, nil)
+	base := "https://rdap.org"
+	if strings.TrimSpace(c.RDAPBaseURL) != "" {
+		base = strings.TrimRight(c.RDAPBaseURL, "/")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/domain/"+c.Domain, nil)
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -135,4 +160,16 @@ func (c *ExpiryChecker) lookupRDAP(ctx context.Context) (time.Time, error) {
 		}
 	}
 	return time.Time{}, fmt.Errorf("rdap 無到期日")
+}
+
+func formatDurationDHMS(d time.Duration) string {
+	seconds := int64(d.Seconds())
+	if seconds < 0 {
+		seconds = -seconds
+	}
+	days := seconds / 86400
+	hours := (seconds % 86400) / 3600
+	minutes := (seconds % 3600) / 60
+	secs := seconds % 60
+	return fmt.Sprintf("%dd%dh%dm%ds", days, hours, minutes, secs)
 }

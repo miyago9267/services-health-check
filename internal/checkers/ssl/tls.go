@@ -68,16 +68,16 @@ func (c *Checker) Check(ctx context.Context) (check.Result, error) {
 	}
 
 	status := check.StatusOK
-	message := fmt.Sprintf("憑證尚有 %s", until.Truncate(time.Hour))
+	message := fmt.Sprintf("憑證尚有 %s", formatDurationDHMS(until))
 	if until <= 0 {
 		status = check.StatusCrit
 		message = "憑證已過期"
 	} else if until <= crit {
 		status = check.StatusCrit
-		message = fmt.Sprintf("憑證即將過期：%s", until.Truncate(time.Hour))
+		message = fmt.Sprintf("憑證即將過期：%s", formatDurationDHMS(until))
 	} else if until <= warn {
 		status = check.StatusWarn
-		message = fmt.Sprintf("憑證即將過期：%s", until.Truncate(time.Hour))
+		message = fmt.Sprintf("憑證即將過期：%s", formatDurationDHMS(until))
 	}
 
 	return check.Result{
@@ -87,4 +87,16 @@ func (c *Checker) Check(ctx context.Context) (check.Result, error) {
 		Metrics:   map[string]any{"not_after": cert.NotAfter.Format(time.RFC3339), "days_left": int(until.Hours() / 24)},
 		CheckedAt: time.Now(),
 	}, nil
+}
+
+func formatDurationDHMS(d time.Duration) string {
+	seconds := int64(d.Seconds())
+	if seconds < 0 {
+		seconds = -seconds
+	}
+	days := seconds / 86400
+	hours := (seconds % 86400) / 3600
+	minutes := (seconds % 3600) / 60
+	secs := seconds % 60
+	return fmt.Sprintf("%dd%dh%dm%ds", days, hours, minutes, secs)
 }

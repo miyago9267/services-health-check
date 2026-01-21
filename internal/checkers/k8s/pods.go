@@ -109,7 +109,14 @@ func (c *PodChecker) Check(ctx context.Context) (check.Result, error) {
 		if len(problems) < limit {
 			limit = len(problems)
 		}
-		message = fmt.Sprintf("%s；例: %s", message, strings.Join(problems[:limit], "；"))
+		short := make([]string, 0, limit)
+		for _, p := range problems[:limit] {
+			fields := strings.Fields(p)
+			if len(fields) > 0 {
+				short = append(short, fields[0])
+			}
+		}
+		message = fmt.Sprintf("%s；例: %s", message, strings.Join(short, "；"))
 	}
 
 	return check.Result{
