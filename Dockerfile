@@ -12,9 +12,13 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags 
 
 FROM alpine:3.20
 WORKDIR /app
-RUN addgroup -S healthd && adduser -S -G healthd healthd \
+RUN apk add --no-cache tzdata \
+    && cp /usr/share/zoneinfo/Asia/Taipei /etc/localtime \
+    && echo "Asia/Taipei" > /etc/timezone \
+    && addgroup -S healthd && adduser -S -G healthd healthd \
     && mkdir -p /etc/healthd \
     && chown -R healthd:healthd /app /etc/healthd
+ENV TZ=Asia/Taipei
 COPY --from=builder /out/healthd /app/healthd
 COPY configs /etc/healthd
 USER healthd
