@@ -16,12 +16,13 @@ import (
 )
 
 type ExpiryChecker struct {
-	NameValue   string
-	Domain      string
-	Timeout     time.Duration
-	WarnBefore  time.Duration
-	CritBefore  time.Duration
-	RDAPBaseURL string
+	NameValue    string
+	Domain       string
+	Timeout      time.Duration
+	WarnBefore   time.Duration
+	CritBefore   time.Duration
+	RDAPBaseURL  string
+	RDAPBaseURLs []string
 }
 
 func (c *ExpiryChecker) Name() string {
@@ -118,14 +119,44 @@ func (c *ExpiryChecker) lookupWhois() (time.Time, error) {
 }
 
 func (c *ExpiryChecker) lookupRDAP(ctx context.Context) (time.Time, error) {
+	bases := c.rdapBases()
+	var lastErr error
+	for _, base := range bases {
+		exp, err := c.lookupRDAPBase(ctx, base)
+		if err == nil {
+			return exp, nil
+		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return time.Time{}, lastErr
+	}
+	return time.Time{}, fmt.Errorf("rdap 無可用來源")
+}
+
+func (c *ExpiryChecker) rdapBases() []string {
+	var bases []string
+	if strings.TrimSpace(c.RDAPBaseURL) != "" {
+		bases = append(bases, c.RDAPBaseURL)
+	}
+	for _, b := range c.RDAPBaseURLs {
+		if strings.TrimSpace(b) == "" {
+			continue
+		}
+		bases = append(bases, b)
+	}
+	if len(bases) == 0 {
+		bases = append(bases, "https://rdap.org")
+	}
+	return bases
+}
+
+func (c *ExpiryChecker) lookupRDAPBase(ctx context.Context, base string) (time.Time, error) {
 	client := &http.Client{Timeout: c.Timeout}
 	if client.Timeout == 0 {
 		client.Timeout = 10 * time.Second
 	}
-	base := "https://rdap.org"
-	if strings.TrimSpace(c.RDAPBaseURL) != "" {
-		base = strings.TrimRight(c.RDAPBaseURL, "/")
-	}
+	base = strings.TrimRight(base, "/")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/domain/"+c.Domain, nil)
 	if err != nil {
 		return time.Time{}, err

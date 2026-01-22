@@ -1,14 +1,15 @@
 package config
 
 import (
+	"bytes"
+	"errors"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/joho/godotenv"
 	"github.com/kelseyhightower/envconfig"
-	"gopkg.in/yaml.v3"
+	"github.com/spf13/viper"
 )
 
 // Load reads YAML config file, then overrides via .env and environment variables.
@@ -16,15 +17,21 @@ import (
 func Load(path string) (*Config, error) {
 	cfg := DefaultConfig()
 
+	if err := ReadEnv(); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+
+	v := viper.New()
+	v.SetConfigType("yaml")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-
-	// Ignore .env errors to keep env optional.
-	_ = godotenv.Load()
 	data = []byte(os.ExpandEnv(string(data)))
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := v.ReadConfig(bytes.NewBuffer(data)); err != nil {
+		return nil, err
+	}
+	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, err
 	}
 	applyEnvOverrides(&cfg)
@@ -109,6 +116,9 @@ func applyCheckOverrides(cfg *Config, ec CheckConfig) {
 	if envNonEmpty("CHECK_RDAP_BASE_URL") {
 		c.RDAPBaseURL = ec.RDAPBaseURL
 	}
+	if envNonEmpty("CHECK_RDAP_BASE_URLS") {
+		c.RDAPBaseURLs = parseCSV(os.Getenv("CHECK_RDAP_BASE_URLS"))
+	}
 	if envNonEmpty("CHECK_WARN_BEFORE") {
 		c.WarnBefore = ec.WarnBefore
 	}
@@ -163,9 +173,20 @@ func applyChannelOverrides(cfg *Config, cc ChannelConfig) {
 	urlSet := envNonEmpty("CHANNEL_URL")
 	timeoutSet := envNonEmpty("CHANNEL_TIMEOUT")
 	usernameSet := envNonEmpty("CHANNEL_USERNAME")
+	smtpHostSet := envNonEmpty("CHANNEL_SMTP_HOST")
+	smtpPortSet := envNonEmpty("CHANNEL_SMTP_PORT")
+	smtpUserSet := envNonEmpty("CHANNEL_SMTP_USERNAME")
+	smtpPassSet := envNonEmpty("CHANNEL_SMTP_PASSWORD")
+	smtpFromSet := envNonEmpty("CHANNEL_SMTP_FROM")
+	smtpToSet := envNonEmpty("CHANNEL_SMTP_TO")
+	smtpSubjectSet := envNonEmpty("CHANNEL_SMTP_SUBJECT")
+	smtpImplicitSet := envNonEmpty("CHANNEL_SMTP_IMPLICIT_TLS")
+	smtpSkipVerifySet := envNonEmpty("CHANNEL_SMTP_SKIP_VERIFY")
 
 	if !typeSet && !nameSet && !urlSet && !timeoutSet && !usernameSet {
-		return
+		if !smtpHostSet && !smtpPortSet && !smtpUserSet && !smtpPassSet && !smtpFromSet && !smtpToSet && !smtpSubjectSet && !smtpImplicitSet && !smtpSkipVerifySet {
+			return
+		}
 	}
 
 	if envNonEmpty("CHANNEL_TYPE") {
@@ -182,6 +203,33 @@ func applyChannelOverrides(cfg *Config, cc ChannelConfig) {
 	}
 	if envNonEmpty("CHANNEL_USERNAME") {
 		ch.Username = cc.Username
+	}
+	if smtpHostSet {
+		ch.SMTPHost = cc.SMTPHost
+	}
+	if smtpPortSet {
+		ch.SMTPPort = cc.SMTPPort
+	}
+	if smtpUserSet {
+		ch.SMTPUsername = cc.SMTPUsername
+	}
+	if smtpPassSet {
+		ch.SMTPPassword = cc.SMTPPassword
+	}
+	if smtpFromSet {
+		ch.SMTPFrom = cc.SMTPFrom
+	}
+	if smtpToSet {
+		ch.SMTPTo = cc.SMTPTo
+	}
+	if smtpSubjectSet {
+		ch.SMTPSubject = cc.SMTPSubject
+	}
+	if smtpImplicitSet {
+		ch.SMTPImplicitTLS = cc.SMTPImplicitTLS
+	}
+	if smtpSkipVerifySet {
+		ch.SMTPSkipVerifyTLS = cc.SMTPSkipVerifyTLS
 	}
 }
 
@@ -230,7 +278,7 @@ func checkEnvKeys() []string {
 		"CHECK_TYPE", "CHECK_NAME", "CHECK_URL", "CHECK_INTERVAL", "CHECK_TIMEOUT",
 		"CHECK_ADDRESS", "CHECK_SERVER_NAME", "CHECK_WARN_BEFORE", "CHECK_CRIT_BEFORE",
 		"CHECK_DOMAIN", "CHECK_TOKEN", "CHECK_RDAP_BASE_URL", "CHECK_NAMESPACE", "CHECK_LABEL_SELECTOR",
-		"CHECK_KUBECONFIG", "CHECK_CONTEXT", "CHECK_MIN_READY", "CHECK_SCHEDULE",
+		"CHECK_RDAP_BASE_URLS", "CHECK_KUBECONFIG", "CHECK_CONTEXT", "CHECK_MIN_READY", "CHECK_SCHEDULE",
 		"CHECK_SKIP_VERIFY",
 	}
 }
@@ -244,6 +292,9 @@ func policyEnvKeys() []string {
 func channelEnvKeys() []string {
 	return []string{
 		"CHANNEL_TYPE", "CHANNEL_NAME", "CHANNEL_URL", "CHANNEL_TIMEOUT", "CHANNEL_USERNAME",
+		"CHANNEL_SMTP_HOST", "CHANNEL_SMTP_PORT", "CHANNEL_SMTP_USERNAME", "CHANNEL_SMTP_PASSWORD",
+		"CHANNEL_SMTP_FROM", "CHANNEL_SMTP_TO", "CHANNEL_SMTP_SUBJECT",
+		"CHANNEL_SMTP_IMPLICIT_TLS", "CHANNEL_SMTP_SKIP_VERIFY",
 	}
 }
 
@@ -334,6 +385,7 @@ func expandDomainEnv(cfg *Config) {
 	var schedule string
 	var timeout time.Duration
 	var rdapBaseURL string
+	var rdapBaseURLs []string
 
 	if envNonEmpty("CHECK_DOMAIN_WARN_BEFORE") {
 		if d, err := time.ParseDuration(os.Getenv("CHECK_DOMAIN_WARN_BEFORE")); err == nil {
@@ -356,6 +408,9 @@ func expandDomainEnv(cfg *Config) {
 	if envNonEmpty("CHECK_DOMAIN_RDAP_BASE_URL") {
 		rdapBaseURL = os.Getenv("CHECK_DOMAIN_RDAP_BASE_URL")
 	}
+	if envNonEmpty("CHECK_DOMAIN_RDAP_BASE_URLS") {
+		rdapBaseURLs = parseCSV(os.Getenv("CHECK_DOMAIN_RDAP_BASE_URLS"))
+	}
 
 	if schedule == "" {
 		schedule = "0 3 * * *"
@@ -369,14 +424,15 @@ func expandDomainEnv(cfg *Config) {
 		}
 		name := strings.ReplaceAll(p, ".", "-")
 		cfg.Checks = append(cfg.Checks, CheckConfig{
-			Type:        "domain_expiry",
-			Name:        "domain-expiry-" + name,
-			Domain:      p,
-			WarnBefore:  warnBefore,
-			CritBefore:  critBefore,
-			Schedule:    schedule,
-			Timeout:     timeout,
-			RDAPBaseURL: rdapBaseURL,
+			Type:         "domain_expiry",
+			Name:         "domain-expiry-" + name,
+			Domain:       p,
+			WarnBefore:   warnBefore,
+			CritBefore:   critBefore,
+			Schedule:     schedule,
+			Timeout:      timeout,
+			RDAPBaseURL:  rdapBaseURL,
+			RDAPBaseURLs: rdapBaseURLs,
 		})
 	}
 }
@@ -387,4 +443,17 @@ func envNonEmpty(key string) bool {
 		return false
 	}
 	return strings.TrimSpace(val) != ""
+}
+
+func parseCSV(input string) []string {
+	parts := strings.Split(input, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
 }

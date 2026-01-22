@@ -23,6 +23,7 @@ import (
 	"services-health-check/internal/notifiers/discord"
 	"services-health-check/internal/notifiers/gchat"
 	"services-health-check/internal/notifiers/slack"
+	"services-health-check/internal/notifiers/smtp"
 	"services-health-check/internal/notifiers/webhook"
 	"services-health-check/internal/utils/logger"
 )
@@ -215,12 +216,13 @@ func buildChecks(cfg *config.Config) ([]scheduledCheck, error) {
 			}
 			checks = append(checks, scheduledCheck{
 				Checker: &domain.ExpiryChecker{
-					NameValue:   c.Name,
-					Domain:      c.Domain,
-					Timeout:     timeout,
-					WarnBefore:  c.WarnBefore,
-					CritBefore:  c.CritBefore,
-					RDAPBaseURL: c.RDAPBaseURL,
+					NameValue:    c.Name,
+					Domain:       c.Domain,
+					Timeout:      timeout,
+					WarnBefore:   c.WarnBefore,
+					CritBefore:   c.CritBefore,
+					RDAPBaseURL:  c.RDAPBaseURL,
+					RDAPBaseURLs: c.RDAPBaseURLs,
 				},
 				Interval:   c.Interval,
 				Schedule:   c.Schedule,
@@ -279,6 +281,24 @@ func buildNotifiers(cfg *config.Config) (map[string]notify.Notifier, error) {
 				NameValue: c.Name,
 				URL:       c.URL,
 				Timeout:   timeout,
+			}
+		case "smtp":
+			timeout := c.Timeout
+			if timeout == 0 {
+				timeout = 10 * time.Second
+			}
+			notifiers[c.Name] = &smtp.Notifier{
+				NameValue:     c.Name,
+				Host:          c.SMTPHost,
+				Port:          c.SMTPPort,
+				Username:      c.SMTPUsername,
+				Password:      c.SMTPPassword,
+				From:          c.SMTPFrom,
+				To:            c.SMTPTo,
+				Subject:       c.SMTPSubject,
+				Timeout:       timeout,
+				ImplicitTLS:   c.SMTPImplicitTLS,
+				SkipVerifyTLS: c.SMTPSkipVerifyTLS,
 			}
 		default:
 			return nil, fmt.Errorf("unknown channel type at index %d (name=%q): %q", i, c.Name, c.Type)

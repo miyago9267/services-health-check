@@ -28,6 +28,8 @@ checks:
     domain: example.com
     warn_before: 720h
     crit_before: 168h
+    rdap_base_urls:
+      - https://rdap.org
     schedule: "0 0 * * *"
 
 policies:
@@ -49,6 +51,19 @@ channels:
     name: gchat-alert
     url: https://chat.googleapis.com/v1/spaces/your/webhook
     timeout: 5s
+  - type: smtp
+    name: smtp-alert
+    smtp_host: smtp.example.com
+    smtp_port: 587
+    smtp_username: your-user
+    smtp_password: your-password
+    smtp_from: alert@example.com
+    smtp_to:
+      - ops@example.com
+    smtp_subject: "[${ENV:-local}] healthd"
+    smtp_implicit_tls: false
+    smtp_skip_verify: false
+    timeout: 10s
 
 routes:
   - match:
