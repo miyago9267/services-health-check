@@ -44,59 +44,40 @@ func (c *PodChecker) Check(ctx context.Context) (check.Result, error) {
 		ns = metav1.NamespaceAll
 	}
 
-	pods, err := clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: c.LabelSelector})
+	deploys, err := clientset.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{LabelSelector: c.LabelSelector})
 	if err != nil {
 		return check.Result{Name: c.NameValue, Status: check.StatusCrit, Message: err.Error(), CheckedAt: time.Now()}, err
 	}
 
-	total := len(pods.Items)
+	total := len(deploys.Items)
 	ready := 0
-	failed := 0
-	pending := 0
+	unready := 0
 	var problems []string
 
-	for _, pod := range pods.Items {
-		switch pod.Status.Phase {
-		case "Failed", "Unknown":
-			failed++
-			problems = append(problems, formatPodIssue(pod.Namespace, pod.Name, pod.Spec.NodeName, string(pod.Status.Phase), "", "", 0))
-		case "Pending":
-			pending++
-			problems = append(problems, formatPodIssue(pod.Namespace, pod.Name, pod.Spec.NodeName, "Pending", "", "", 0))
+	for _, deploy := range deploys.Items {
+		desired := int32(1)
+		if deploy.Spec.Replicas != nil {
+			desired = *deploy.Spec.Replicas
 		}
-
-		allReady := true
-		for _, cs := range pod.Status.ContainerStatuses {
-			if !cs.Ready {
-				allReady = false
-				reason := ""
-				if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
-					reason = cs.State.Waiting.Reason
-				} else if cs.State.Terminated != nil && cs.State.Terminated.Reason != "" {
-					reason = cs.State.Terminated.Reason
-				}
-				problems = append(problems, formatPodIssue(pod.Namespace, pod.Name, pod.Spec.NodeName, string(pod.Status.Phase), cs.Name, reason, cs.RestartCount))
-				break
-			}
-		}
-		if allReady && pod.Status.Phase == "Running" {
+		readyReplicas := deploy.Status.ReadyReplicas
+		if readyReplicas >= desired && desired > 0 {
 			ready++
+			continue
 		}
+		unready++
+		problems = append(problems, fmt.Sprintf("%s/%s", deploy.Namespace, deploy.Name))
 	}
 
 	status := check.StatusOK
-	message := "pods healthy"
+	message := "deployments healthy"
 
 	if total == 0 {
 		status = check.StatusWarn
-		message = "找不到任何 Pod"
-	} else if failed > 0 {
-		status = check.StatusCrit
-		message = fmt.Sprintf("有 %d 個 Pod 失敗", failed)
+		message = "找不到任何 Deployment"
 	} else if c.MinReady > 0 && ready < c.MinReady {
 		status = check.StatusCrit
 		message = fmt.Sprintf("就緒數不足：%d（最低 %d）", ready, c.MinReady)
-	} else if pending > 0 || ready < total {
+	} else if unready > 0 || ready < total {
 		status = check.StatusWarn
 		message = fmt.Sprintf("就緒 %d/%d", ready, total)
 	}
@@ -109,21 +90,14 @@ func (c *PodChecker) Check(ctx context.Context) (check.Result, error) {
 		if len(problems) < limit {
 			limit = len(problems)
 		}
-		short := make([]string, 0, limit)
-		for _, p := range problems[:limit] {
-			fields := strings.Fields(p)
-			if len(fields) > 0 {
-				short = append(short, fields[0])
-			}
-		}
-		message = fmt.Sprintf("%s；例: %s", message, strings.Join(short, "；"))
+		message = fmt.Sprintf("%s；例: %s", message, strings.Join(problems[:limit], "；"))
 	}
 
 	return check.Result{
 		Name:      c.NameValue,
 		Status:    status,
 		Message:   message,
-		Metrics:   map[string]any{"total": total, "ready": ready, "failed": failed, "pending": pending, "problems": problems},
+		Metrics:   map[string]any{"total": total, "ready": ready, "unready": unready, "problems": problems},
 		CheckedAt: time.Now(),
 	}, nil
 }
@@ -163,22 +137,4 @@ func (c *PodChecker) buildClient() (*kubernetes.Clientset, error) {
 	return kubernetes.NewForConfig(cfg)
 }
 
-func formatPodIssue(namespace, podName, nodeName, phase, container, reason string, restarts int32) string {
-	fields := []string{fmt.Sprintf("%s/%s", namespace, podName)}
-	if phase != "" {
-		fields = append(fields, "phase="+phase)
-	}
-	if container != "" {
-		fields = append(fields, "container="+container)
-	}
-	if reason != "" {
-		fields = append(fields, "reason="+reason)
-	}
-	if restarts > 0 {
-		fields = append(fields, fmt.Sprintf("restarts=%d", restarts))
-	}
-	if nodeName != "" {
-		fields = append(fields, "node="+nodeName)
-	}
-	return strings.Join(fields, " ")
-}
+// formatPodIssue removed: use deployment-level readiness only.
